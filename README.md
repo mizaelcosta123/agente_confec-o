@@ -1,22 +1,26 @@
 # Uniform Design Automation (Desktop • Gemini)
 
-Aplicação desktop em Python/Tkinter com layout 3x3 estilo dashboard SaaS para automação de design de uniformes.
+Aplicação desktop em Python/Tkinter para automação de mockups de uniformes com visual dark profissional no estilo dashboard.
 
 ## O que foi implementado
-- Login por **API Key Gemini** com validação real da chave (formato + consulta de modelos na API).
-- Recusa de login para chave inválida/inativa.
-- Dropdown dinâmico para escolher versão da IA (modelos Gemini disponíveis na chave).
-- Painéis em grade 3x3 no estilo da referência visual.
-- Campos de produção adicionados:
-  - tamanho da camiseta (`PP` a `XGG`)
-  - modelo da camiseta (`PV`, `Social`, `Brim`, `Polo`, `Moletom`)
-  - aplicação (`Frente`, `Verso`, `Frente e Verso`)
-- Botão **Criar Layout** com validação completa dos campos obrigatórios.
-- Geração de prompt de criação com regra crítica de originalidade:
-  - **nunca alterar a logo anexada**
-  - preservar identidade visual 100%
-- Tentativa de geração de imagem via Gemini (texto + logo anexa).
-- Exibição da imagem gerada no painel de mockup quando o modelo retornar imagem.
+- Interface reorganizada em 3 áreas funcionais (configuração, resultados, execução), inspirada no layout de referência.
+- Botão principal **GERAR MOCKUP** implementado e funcional.
+- Botões de topo: **Novo Projeto**, **Salvar Projeto**, **Exportar Ficha Técnica**.
+- Login com API Key Gemini + validação real da chave + carregamento de versões da IA no dropdown.
+- Fluxo completo:
+  - briefing (segmento, cores, detalhes),
+  - upload da logo,
+  - seleção de modelo/tamanho/lado de aplicação,
+  - técnica de impressão,
+  - geração de prompt e tentativa de geração de imagem.
+- Regra crítica aplicada no prompt: **jamais alterar a logo anexada**.
+
+## Campos de produção
+- Modelo da camiseta: `PV`, `Social`, `Brim`, `Polo`, `Moletom`
+- Tamanho mockup: `TBU`, `PP`, `P`, `M`, `G`, `GG`, `XGG`
+- Tamanho camiseta final: `PP`, `P`, `M`, `G`, `GG`, `XGG`
+- Aplicação: `Frente`, `Verso`, `Frente e Verso`
+- Técnica: `Bordado`, `Silk Screen`, `Sublimação`
 
 ## Requisitos
 - Python 3.10+
@@ -35,16 +39,15 @@ python3 src/app.py
 Saída esperada:
 - `dist/agente_uniformes`
 
-## Fluxo de uso
-1. Informe API key Gemini e clique em **Connect**.
-2. Se a chave for real/ativa, o sistema loga e carrega modelos no dropdown.
-3. Preencha briefing, escolha cor, tamanho, modelo e aplicação (frente/verso).
-4. Importe a logo.
-5. Clique em **Criar Layout** para gerar imagem.
-6. Se o modelo não retornar imagem, troque para um modelo Gemini com suporte a imagem.
+## Fluxo rápido
+1. Informe API key e conecte.
+2. Preencha briefing e configuração da peça.
+3. Importe a logo.
+4. Clique em **GERAR MOCKUP**.
+5. Revise resultado, console e ficha técnica.
 
 ## Testes
 ```bash
-python3 -m unittest discover -s tests -v
 python3 -m py_compile src/app.py src/uniform_agent.py
+python3 -m unittest discover -s tests -v
 ```

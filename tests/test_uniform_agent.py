@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from src.uniform_agent import (
     UniformBriefing,
-    build_prompt,
+    build_creation_prompt,
     encode_logo_inline_part,
     generate_local_mock_response,
     validate_gemini_key,
@@ -21,21 +21,24 @@ class UniformAgentTests(unittest.TestCase):
             cor_hex="#1E73BE",
             logo_proporcao="12x8 cm",
             tamanho_mockup="TBU",
+            tamanho_camiseta="G",
+            modelo_camiseta="Polo",
+            aplicacao_lado="Frente e Verso",
             modelagem="Regular",
             tecnica_impressao="Sublimação",
         )
 
     def test_build_prompt_contains_required_sections(self):
-        prompt = build_prompt(self.briefing)
-        self.assertIn("Segmento: Industrial", prompt)
-        self.assertIn("Formato de resposta obrigatório", prompt)
-        self.assertIn("Técnica de impressão: Sublimação", prompt)
+        prompt = build_creation_prompt(self.briefing)
+        self.assertIn("Modelo da camiseta: Polo", prompt)
+        self.assertIn("Aplicação da arte: Frente e Verso", prompt)
+        self.assertIn("NUNCA alterar a logo anexada", prompt)
 
     def test_local_response_is_structured(self):
         response = generate_local_mock_response(self.briefing)
         self.assertIn("A) Resumo do pedido interpretado", response)
-        self.assertIn("B) Proposta de design", response)
-        self.assertIn("E) Próximo passo", response)
+        self.assertIn("C) Regra da logo", response)
+        self.assertIn("Logo original preservada", response)
 
     def test_validate_key_rejects_invalid_prefix(self):
         ok, msg, models = validate_gemini_key("sk-test")

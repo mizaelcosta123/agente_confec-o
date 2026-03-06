@@ -4,7 +4,8 @@ from tkinter import filedialog, messagebox
 
 from uniform_agent import (
     UniformBriefing,
-    build_prompt,
+    build_creation_prompt,
+    generate_layout_image_with_gemini,
     generate_local_mock_response,
     generate_with_gemini,
     validate_gemini_key,
@@ -17,14 +18,16 @@ TEXT = "#E2E8F0"
 ACCENT = "#38BDF8"
 ENTRY_BG = "#0B1220"
 
-TBU_SPECS = "- Tamanho: TBU\n- Peito: 56 cm\n- Comprimento: 72 cm\n- Método: Sublimação"
+CAMISETA_MODELOS = ["PV", "Social", "Brim", "Polo", "Moletom"]
+TAMANHOS = ["PP", "P", "M", "G", "GG", "XGG"]
+LADOS = ["Frente", "Verso", "Frente e Verso"]
 
 
 class UniformAgentApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Uniform Design Automation • Gemini")
-        self.root.geometry("1400x900")
+        self.root.geometry("1440x930")
         self.root.configure(bg=BG)
 
         self.api_key = ""
@@ -36,6 +39,12 @@ class UniformAgentApp:
         self.modelagem_var = tk.StringVar(value="Regular")
         self.tecnica_var = tk.StringVar(value="Sublimação")
         self.mockup_size_var = tk.StringVar(value="TBU")
+        self.tamanho_camiseta_var = tk.StringVar(value="M")
+        self.modelo_camiseta_var = tk.StringVar(value="Polo")
+        self.aplicacao_lado_var = tk.StringVar(value="Frente")
+
+        self.generated_image_path: str | None = None
+        self.generated_photo = None
 
         self._build_layout()
 
@@ -94,7 +103,6 @@ class UniformAgentApp:
         tk.Label(body, text="API Key:", bg=PANEL_BG, fg=TEXT, font=("Segoe UI", 12, "bold")).pack(anchor="w")
         self.api_key_entry = self._entry(body, show="*")
         self.api_key_entry.pack(fill="x", pady=(6, 10), ipady=9)
-        self.api_key_entry.insert(0, "")
 
         tk.Label(body, text="Versão da IA:", bg=PANEL_BG, fg=TEXT, font=("Segoe UI", 11, "bold")).pack(anchor="w")
         self.model_dropdown = tk.OptionMenu(body, self.model_var, "")
@@ -163,12 +171,33 @@ class UniformAgentApp:
         body = tk.Frame(panel, bg=PANEL_BG)
         body.pack(fill="both", expand=True, padx=12, pady=12)
 
-        tk.Label(body, text="Tamanho Mockup: TBU", bg=PANEL_BG, fg=TEXT, font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(0, 10))
+        tk.Label(body, text="Tamanho Mockup:", bg=PANEL_BG, fg=TEXT, font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        mockup_menu = tk.OptionMenu(body, self.mockup_size_var, "TBU", *TAMANHOS)
+        mockup_menu.configure(bg=ENTRY_BG, fg=TEXT, activebackground=ENTRY_BG, activeforeground=TEXT, relief="flat")
+        mockup_menu["menu"].configure(bg=ENTRY_BG, fg=TEXT)
+        mockup_menu.pack(fill="x", pady=(4, 8))
+
+        tk.Label(body, text="Tamanho Camiseta:", bg=PANEL_BG, fg=TEXT, font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        tamanho_menu = tk.OptionMenu(body, self.tamanho_camiseta_var, *TAMANHOS)
+        tamanho_menu.configure(bg=ENTRY_BG, fg=TEXT, activebackground=ENTRY_BG, activeforeground=TEXT, relief="flat")
+        tamanho_menu["menu"].configure(bg=ENTRY_BG, fg=TEXT)
+        tamanho_menu.pack(fill="x", pady=(4, 8))
+
+        tk.Label(body, text="Modelo da Camiseta:", bg=PANEL_BG, fg=TEXT, font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        modelo_menu = tk.OptionMenu(body, self.modelo_camiseta_var, *CAMISETA_MODELOS)
+        modelo_menu.configure(bg=ENTRY_BG, fg=TEXT, activebackground=ENTRY_BG, activeforeground=TEXT, relief="flat")
+        modelo_menu["menu"].configure(bg=ENTRY_BG, fg=TEXT)
+        modelo_menu.pack(fill="x", pady=(4, 8))
+
+        tk.Label(body, text="Aplicação:", bg=PANEL_BG, fg=TEXT, font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        lado_menu = tk.OptionMenu(body, self.aplicacao_lado_var, *LADOS)
+        lado_menu.configure(bg=ENTRY_BG, fg=TEXT, activebackground=ENTRY_BG, activeforeground=TEXT, relief="flat")
+        lado_menu["menu"].configure(bg=ENTRY_BG, fg=TEXT)
+        lado_menu.pack(fill="x", pady=(4, 8))
 
         row = tk.Frame(body, bg=PANEL_BG)
-        row.pack(fill="x")
-        tk.Label(row, text="Modelo:", bg=PANEL_BG, fg=TEXT, font=("Segoe UI", 11, "bold")).pack(side="left")
-
+        row.pack(fill="x", pady=(6, 0))
+        tk.Label(row, text="Modelagem:", bg=PANEL_BG, fg=TEXT, font=("Segoe UI", 11, "bold")).pack(side="left")
         for name in ["Regular", "Slim", "Oversize"]:
             tk.Radiobutton(
                 row,
@@ -181,13 +210,8 @@ class UniformAgentApp:
                 activebackground=PANEL_BG,
                 activeforeground=TEXT,
                 highlightthickness=0,
-                font=("Segoe UI", 11),
+                font=("Segoe UI", 10),
             ).pack(side="left", padx=8)
-
-        tk.Label(body, text="Proporção da logo (ex: 12x8 cm):", bg=PANEL_BG, fg=TEXT, font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(18, 4))
-        self.logo_prop_entry = self._entry(body)
-        self.logo_prop_entry.pack(fill="x", ipady=8)
-        self.logo_prop_entry.insert(0, "12x8 cm")
 
     def _build_tecnica(self, panel, grid):
         panel.grid(row=1, column=2, sticky="nsew", padx=8, pady=8)
@@ -209,6 +233,11 @@ class UniformAgentApp:
                 font=("Segoe UI", 12),
             ).pack(anchor="w", pady=6)
 
+        tk.Label(body, text="Proporção da logo (ex: 12x8 cm):", bg=PANEL_BG, fg=TEXT, font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(18, 4))
+        self.logo_prop_entry = self._entry(body)
+        self.logo_prop_entry.pack(fill="x", ipady=8)
+        self.logo_prop_entry.insert(0, "12x8 cm")
+
     def _build_mockup(self, panel, grid):
         panel.grid(row=2, column=0, sticky="nsew", padx=8, pady=8)
         body = tk.Frame(panel, bg=PANEL_BG)
@@ -216,7 +245,7 @@ class UniformAgentApp:
 
         self.mockup_canvas = tk.Canvas(body, bg="#0B1220", highlightthickness=0)
         self.mockup_canvas.pack(fill="both", expand=True)
-        self._draw_mockup()
+        self._draw_mockup_placeholder()
 
     def _build_ficha(self, panel, grid):
         panel.grid(row=2, column=1, sticky="nsew", padx=8, pady=8)
@@ -225,7 +254,7 @@ class UniformAgentApp:
 
         self.ficha_text = tk.Text(body, bg=ENTRY_BG, fg=TEXT, relief="flat", font=("Segoe UI", 12), wrap="word")
         self.ficha_text.pack(fill="both", expand=True)
-        self.ficha_text.insert("1.0", TBU_SPECS)
+        self.ficha_text.insert("1.0", "- Tamanho: TBU\n- Peito: 56 cm\n- Comprimento: 72 cm\n- Método: Sublimação")
 
     def _build_console(self, panel, grid):
         panel.grid(row=2, column=2, sticky="nsew", padx=8, pady=8)
@@ -236,7 +265,8 @@ class UniformAgentApp:
         self.console_text.pack(fill="both", expand=True, pady=(0, 10))
         self.console_text.insert("1.0", "Pronto. Informe sua API Key Gemini e clique em Connect.\n")
 
-        self._button(body, "Enviar para Gemini", self.enviar_para_gemini).pack(fill="x")
+        self._button(body, "Criar Layout", self.criar_layout).pack(fill="x")
+        self._button(body, "Enviar Texto para Gemini", self.enviar_para_gemini).pack(fill="x", pady=(8, 0))
         self._button(body, "Teste interno", self.teste_interno).pack(fill="x", pady=(8, 0))
 
     def _draw_gradient(self, canvas: tk.Canvas):
@@ -254,18 +284,23 @@ class UniformAgentApp:
             b = int(int(c1[5:7], 16) * (1 - frac) + int(c2[5:7], 16) * frac)
             canvas.create_line(i, 0, i, 70, fill=f"#{r:02x}{g:02x}{b:02x}")
 
-    def _draw_mockup(self):
+    def _draw_mockup_placeholder(self):
         c = self.mockup_canvas
         c.delete("all")
         w = max(c.winfo_width(), 300)
         h = max(c.winfo_height(), 240)
         cx = w // 2
         c.create_polygon(cx - 80, 60, cx - 120, 110, cx - 85, 120, cx - 65, 250, cx + 65, 250, cx + 85, 120, cx + 120, 110, cx + 80, 60, cx + 40, 70, cx + 20, 50, cx - 20, 50, cx - 40, 70, fill="#2563EB", outline="#1D4ED8", width=2)
-        c.create_polygon(cx - 120, 110, cx - 145, 170, cx - 110, 180, cx - 85, 120, fill="#1D4ED8", outline="")
-        c.create_polygon(cx + 120, 110, cx + 145, 170, cx + 110, 180, cx + 85, 120, fill="#1D4ED8", outline="")
-        c.create_polygon(cx - 75, 62, cx - 105, 95, cx - 90, 100, cx - 55, 70, fill="#FACC15", outline="")
-        c.create_polygon(cx + 75, 62, cx + 105, 95, cx + 90, 100, cx + 55, 70, fill="#FACC15", outline="")
-        c.create_text(cx + 25, 115, text="LOGO", fill="#BAE6FD", font=("Segoe UI", 12, "bold"))
+        c.create_text(cx, 145, text="Pré-visualização", fill="#BAE6FD", font=("Segoe UI", 12, "bold"))
+
+    def _show_generated_image(self, path: str):
+        try:
+            self.generated_photo = tk.PhotoImage(file=path)
+            self.mockup_canvas.delete("all")
+            self.mockup_canvas.create_image(10, 10, anchor="nw", image=self.generated_photo)
+        except Exception:
+            self._log(f"Imagem gerada salva em: {path}")
+            self._draw_mockup_placeholder()
 
     def _log(self, message: str):
         self.console_text.insert("end", message + "\n")
@@ -290,8 +325,7 @@ class UniformAgentApp:
     def _refresh_model_dropdown(self, models: list[str]):
         menu = self.model_dropdown["menu"]
         menu.delete(0, "end")
-        default = models[0]
-        self.model_var.set(default)
+        self.model_var.set(models[0])
         for m in models:
             menu.add_command(label=m, command=lambda value=m: self.model_var.set(value))
 
@@ -319,7 +353,7 @@ class UniformAgentApp:
         import colorsys
 
         r, g, b = colorsys.hsv_to_rgb(hue, 0.85, 0.9)
-        hex_color = f"#{int(r*255):02X}{int(g*255):02X}{int(b*255):02X}"
+        hex_color = f"#{int(r * 255):02X}{int(g * 255):02X}{int(b * 255):02X}"
         self.selected_hex.set(hex_color)
         self.hex_box.delete(0, "end")
         self.hex_box.insert(0, hex_color)
@@ -334,26 +368,97 @@ class UniformAgentApp:
             segmento=self.segmento_entry.get().strip(),
             cores=self.cores_entry.get().strip(),
             detalhes=self.detalhes_text.get("1.0", "end").strip(),
-            cor_hex=self.selected_hex.get(),
+            cor_hex=self.selected_hex.get().strip(),
             logo_proporcao=self.logo_prop_entry.get().strip(),
-            tamanho_mockup=self.mockup_size_var.get(),
-            modelagem=self.modelagem_var.get(),
-            tecnica_impressao=self.tecnica_var.get(),
+            tamanho_mockup=self.mockup_size_var.get().strip(),
+            tamanho_camiseta=self.tamanho_camiseta_var.get().strip(),
+            modelo_camiseta=self.modelo_camiseta_var.get().strip(),
+            aplicacao_lado=self.aplicacao_lado_var.get().strip(),
+            modelagem=self.modelagem_var.get().strip(),
+            tecnica_impressao=self.tecnica_var.get().strip(),
         )
 
+    def _validate_required_inputs(self) -> tuple[bool, str]:
+        if not self.api_key:
+            return False, "Conecte uma API key Gemini válida."
+        if not self.model_var.get().strip():
+            return False, "Selecione a versão da IA no dropdown."
+        if not self.segmento_entry.get().strip():
+            return False, "Preencha o campo Segmento."
+        if not self.cores_entry.get().strip():
+            return False, "Preencha o campo Cores."
+        if not self.detalhes_text.get("1.0", "end").strip():
+            return False, "Preencha o campo Detalhes."
+        if not self.logo_file:
+            return False, "Importe a logo antes de criar layout."
+        if not self.hex_box.get().strip():
+            return False, "Confirme a cor (HEX)."
+        if not self.logo_prop_entry.get().strip():
+            return False, "Preencha a proporção da logo."
+        return True, "OK"
+
     def gerar_prompt(self):
-        prompt = build_prompt(self._briefing())
+        briefing = self._briefing()
+        prompt = build_creation_prompt(briefing)
+
         self.console_text.delete("1.0", "end")
-        self._log("Prompt gerado com sucesso.")
+        self._log("Prompt de criação gerado com sucesso.")
         self._log("--- PROMPT ---")
         self._log(prompt)
 
         ficha = (
-            f"- Tamanho: TBU\n- Peito: 56 cm\n- Comprimento: 72 cm\n"
-            f"- Método: {self.tecnica_var.get()}\n- Cor: {self.selected_hex.get()}\n- Modelagem: {self.modelagem_var.get()}"
+            f"- Tamanho mockup: {briefing.tamanho_mockup}\n"
+            f"- Tamanho final: {briefing.tamanho_camiseta}\n"
+            f"- Modelo camiseta: {briefing.modelo_camiseta}\n"
+            f"- Aplicação: {briefing.aplicacao_lado}\n"
+            f"- Método: {briefing.tecnica_impressao}\n"
+            f"- Cor: {briefing.cor_hex}\n"
+            f"- Regra da logo: manter original sem alteração"
         )
         self.ficha_text.delete("1.0", "end")
         self.ficha_text.insert("1.0", ficha)
+
+    def criar_layout(self):
+        valid, msg = self._validate_required_inputs()
+        if not valid:
+            messagebox.showwarning("Dados obrigatórios", msg)
+            self._log(f"Validação falhou: {msg}")
+            return
+
+        briefing = self._briefing()
+        prompt = build_creation_prompt(briefing)
+
+        self._log("Enviando prompt de criação de layout para Gemini...")
+        self._log("Regra aplicada: logo original não pode ser alterada.")
+
+        try:
+            image_path, summary = generate_layout_image_with_gemini(
+                self.api_key,
+                self.model_var.get().strip(),
+                prompt,
+                self.logo_file,
+            )
+        except Exception as exc:
+            self._log(f"Falha ao criar layout de imagem: {exc}")
+            messagebox.showerror("Criar Layout", str(exc))
+            return
+
+        if image_path:
+            self.generated_image_path = image_path
+            self._show_generated_image(image_path)
+            self._log(f"Layout criado com sucesso: {image_path}")
+            if summary:
+                self._log(summary)
+            messagebox.showinfo("Criar Layout", f"Imagem gerada com sucesso em:\n{image_path}")
+        else:
+            self._draw_mockup_placeholder()
+            self._log("Modelo retornou somente texto, sem imagem. Exibindo resumo no console.")
+            self._log(summary)
+            messagebox.showwarning(
+                "Criar Layout",
+                "O modelo selecionado não retornou imagem.\n"
+                "Troque para uma versão Gemini com suporte a imagem e tente novamente.",
+            )
 
     def enviar_para_gemini(self):
         if not self.api_key:
@@ -365,8 +470,8 @@ class UniformAgentApp:
             messagebox.showwarning("Modelo", "Selecione uma versão da IA no dropdown.")
             return
 
-        prompt = build_prompt(self._briefing())
-        self._log("Enviando prompt para Gemini...")
+        prompt = build_creation_prompt(self._briefing())
+        self._log("Enviando prompt textual para Gemini...")
 
         try:
             answer = generate_with_gemini(self.api_key, model, prompt, self.logo_file)
@@ -375,24 +480,23 @@ class UniformAgentApp:
             messagebox.showerror("Gemini", str(exc))
             return
 
-        self._log("Gerando resposta...")
-        self._log("Mockup criado com sucesso!")
+        self._log("Resposta textual recebida com sucesso.")
         self._log("--- RESPOSTA GEMINI ---")
         self._log(answer)
 
     def teste_interno(self):
         briefing = self._briefing()
-        prompt = build_prompt(briefing)
+        prompt = build_creation_prompt(briefing)
         local = generate_local_mock_response(briefing)
 
         checks = [
-            "OK" if "Formato de resposta obrigatório" in prompt else "FALHA",
-            "OK" if "A) Resumo do pedido interpretado" in local else "FALHA",
+            "OK" if "NUNCA alterar a logo anexada" in prompt else "FALHA",
+            "OK" if "Logo original preservada" in local else "FALHA",
         ]
 
         self._log("[TESTE INTERNO E2E]")
-        self._log(f"- Prompt: {checks[0]}")
-        self._log(f"- Estrutura resposta local: {checks[1]}")
+        self._log(f"- Prompt com regra de originalidade da logo: {checks[0]}")
+        self._log(f"- Estrutura de contingência local: {checks[1]}")
         self._log(local)
         messagebox.showinfo("Teste interno", "Teste interno executado com sucesso.")
 
@@ -400,7 +504,7 @@ class UniformAgentApp:
 def main():
     root = tk.Tk()
     app = UniformAgentApp(root)
-    app.mockup_canvas.bind("<Configure>", lambda _e: app._draw_mockup())
+    app.mockup_canvas.bind("<Configure>", lambda _e: app._draw_mockup_placeholder())
     root.mainloop()
 
 

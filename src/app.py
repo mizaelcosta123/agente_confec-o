@@ -1,9 +1,15 @@
-import base64
-import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from openai import OpenAI
+
+from uniform_agent import (
+    UniformBriefing,
+    build_prompt,
+    encode_logo_as_data_url,
+    generate_local_mock_response,
+    is_quota_error,
+)
 
 COLOR_PALETTE = {
     "Branco": "#FFFFFF",
@@ -167,6 +173,7 @@ class UniformAgentApp:
         action_frame.pack(fill="x", pady=6)
         ttk.Button(action_frame, text="Gerar prompt completo", command=self.generate_prompt).pack(side="left")
         ttk.Button(action_frame, text="Enviar para ChatGPT", command=self.send_prompt).pack(side="left", padx=8)
+        ttk.Button(action_frame, text="Teste interno (E2E local)", command=self.run_internal_test).pack(side="left", padx=8)
 
         self.prompt_text = tk.Text(container, height=14, wrap="word")
         self.prompt_text.pack(fill="both", expand=True, pady=8)
@@ -187,6 +194,20 @@ class UniformAgentApp:
         hex_code = selected.split("(")[-1].replace(")", "") if "(" in selected else "-"
         self.hex_label.config(text=hex_code)
 
+    def _current_briefing(self) -> UniformBriefing:
+        return UniformBriefing(
+            segmento=self.segmento.get(),
+            objetivo_visual=self.objetivo.get(),
+            publico_uso=self.publico.get(),
+            restricoes=self.restricoes.get(),
+            cor_nome=self.color_var.get(),
+            cor_hex=self.hex_label.cget("text"),
+            logo_proporcao=self.logo_ratio.get(),
+            tamanho_mockup=self.mockup_size.get(),
+            modelo_peca=self.model_type.get(),
+            metodo_aplicacao=self.print_type.get(),
+        )
+
     def login(self):
         api_key = self.api_key_entry.get().strip()
         if not api_key:
@@ -205,63 +226,51 @@ class UniformAgentApp:
         )
         if path:
             self.logo_file = path
-            self.logo_label.config(text=os.path.basename(path))
+            self.logo_label.config(text=path.split("/")[-1])
 
     def generate_prompt(self):
-        prompt = self._build_prompt()
+        prompt = build_prompt(self._current_briefing())
         self.prompt_text.delete("1.0", tk.END)
         self.prompt_text.insert(tk.END, prompt)
 
-    def _build_prompt(self):
-        cor = self.color_var.get() or "Não informado"
-        hex_code = self.hex_label.cget("text")
+    def run_internal_test(self):
+        briefing = self._current_briefing()
+        prompt = build_prompt(briefing)
+        local_answer = generate_local_mock_response(briefing)
 
-        prompt = f"""
-Pedido de criação de mockup de uniforme:
-- Segmento: {self.segmento.get() or 'Não informado'}
-- Objetivo visual: {self.objetivo.get() or 'Não informado'}
-- Público de uso: {self.publico.get() or 'Não informado'}
-- Restrições: {self.restricoes.get() or 'Não informado'}
-- Cor da camiseta selecionada: {cor}
-- Código HEX extraído: {hex_code}
-- Proporção da impressão da logo: {self.logo_ratio.get() or 'Não informado'}
-- Tamanho do mockup: {self.mockup_size.get()}
-- Modelo da peça: {self.model_type.get()}
-- Método de aplicação: {self.print_type.get()}
+        checks = []
+        checks.append("OK" if "Pedido de criação de mockup" in prompt else "FALHA")
+        checks.append("OK" if "A) Resumo do pedido interpretado" in local_answer else "FALHA")
 
-Instruções obrigatórias:
-1) Gere mockup profissional seguindo padrões de confecção.
-2) Mantenha coerência técnica de posicionamento e proporção.
-3) Produza resposta em 5 blocos: resumo, proposta visual, especificação técnica, decisões automáticas e próximo passo.
-4) Considere que o usuário poderá informar o tamanho real após aprovação do mockup.
-""".strip()
-        return prompt
+        self.prompt_text.delete("1.0", tk.END)
+        self.prompt_text.insert(tk.END, prompt)
+
+        self.response_text.delete("1.0", tk.END)
+        self.response_text.insert(
+            tk.END,
+            "[TESTE INTERNO E2E LOCAL]\n"
+            f"- Prompt gerado: {checks[0]}\n"
+            f"- Resposta estruturada local: {checks[1]}\n\n"
+            f"{local_answer}",
+        )
+        messagebox.showinfo("Teste interno", "Teste E2E local concluído com sucesso.")
 
     def send_prompt(self):
         if not self.client:
             messagebox.showwarning("Atenção", "Faça login com API Key antes de enviar.")
             return
 
-        prompt = self.prompt_text.get("1.0", tk.END).strip() or self._build_prompt()
+        prompt = self.prompt_text.get("1.0", tk.END).strip() or build_prompt(self._current_briefing())
         model = self.model_entry.get().strip() or "gpt-4.1-mini"
 
         input_content = [{"type": "input_text", "text": prompt}]
 
         if self.logo_file:
-            ext = os.path.splitext(self.logo_file)[1].lower()
-            mime_type = "image/png"
-            if ext in [".jpg", ".jpeg"]:
-                mime_type = "image/jpeg"
-            elif ext == ".svg":
-                mime_type = "image/svg+xml"
-
-            with open(self.logo_file, "rb") as f:
-                b64_data = base64.b64encode(f.read()).decode("utf-8")
-
+            data_url = encode_logo_as_data_url(self.logo_file)
             input_content.append(
                 {
                     "type": "input_image",
-                    "image_url": f"data:{mime_type};base64,{b64_data}",
+                    "image_url": data_url,
                 }
             )
 
@@ -281,6 +290,25 @@ Instruções obrigatórias:
             )
             answer = response.output_text
         except Exception as exc:
+            if is_quota_error(exc):
+                briefing = self._current_briefing()
+                fallback = generate_local_mock_response(briefing)
+                self.response_text.delete("1.0", tk.END)
+                self.response_text.insert(
+                    tk.END,
+                    "[MODO CONTINGÊNCIA: sem crédito/quota na API]\n"
+                    "A requisição para OpenAI falhou por quota insuficiente (HTTP 429).\n"
+                    "Foi gerada uma resposta local para você não parar o fluxo de trabalho.\n\n"
+                    f"{fallback}",
+                )
+                messagebox.showwarning(
+                    "Quota insuficiente",
+                    "Sua API key está sem saldo/quota.\n"
+                    "Ative cobrança/créditos em platform.openai.com e tente novamente.\n"
+                    "Enquanto isso, o sistema usou modo de contingência local.",
+                )
+                return
+
             messagebox.showerror("Erro ao enviar", str(exc))
             return
 
